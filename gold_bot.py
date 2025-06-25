@@ -291,18 +291,76 @@ def close_positions(symbol, position_type, opposite_order_type):
             else:
                 print(f"❌ ปิดสถานะไม่สำเร็จ: retcode={result.retcode}, msg={result.comment}")
 
+def calculate_lot_size(risk_percentage=1, account_balance=None, atr=None, stop_loss_pips=None):
+    if account_balance is None or atr is None or stop_loss_pips is None:
+        return 0.01  # fallback
 
+    # เงินที่พร้อมจะเสียในแต่ละ order
+    risk_amount = account_balance * (risk_percentage / 100)
+    
+    # มูลค่าต่อ pip
+    pip_value = 10  # สำหรับทองในบางโบรกเกอร์อาจไม่ใช่ 10 ต้องตรวจสอบที่ mt5.symbol_info(symbol)
+
+    lot_size = risk_amount / (stop_loss_pips * pip_value)
+    return max(round(lot_size, 2), 0.01)
+
+def is_good_time_to_trade():
+    now = datetime.now()
+    if now.hour in [3, 4, 5]:  # ช่วงเวลาน้ำบาง (ตลาด New York ปิด)
+        return False
+    return True
+
+def modify_order_trailing(symbol, distance=500):
+    positions = mt5.positions_get(symbol=symbol)
+    if positions is None:
+        return
+
+    for pos in positions:
+        tick = mt5.symbol_info_tick(symbol)
+        price = tick.ask if pos.type == mt5.POSITION_TYPE_BUY else tick.bid
+        point = mt5.symbol_info(symbol).point
+
+        if pos.type == mt5.POSITION_TYPE_BUY and (price - pos.price_open) > distance * point:
+            new_sl = price - distance * point
+        elif pos.type == mt5.POSITION_TYPE_SELL and (pos.price_open - price) > distance * point:
+            new_sl = price + distance * point
+        else:
+            continue
+
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": pos.ticket,
+            "sl": new_sl,
+            "tp": pos.tp,
+        }
+
+        result = mt5.order_send(request)
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"🔒 ปรับ SL ใหม่เป็น {new_sl}")
+
+def should_stop_trading():
+    account_info = mt5.account_info()
+    if account_info is None:
+        return False
+
+    balance = account_info.balance
+    equity = account_info.equity
+
+    if equity < balance * 0.95:
+        print("🛑 ขาดทุนเกิน 5% - หยุดเทรดวันนี้")
+        return True
+    return False
 
 def main_loop():
     if not mt5.initialize() or not mt5.terminal_info():
         print("❌ ไม่สามารถเชื่อมต่อ MT5 ได้")
         return
 
-    last_trend = None
-
     try:
         while True:
-            df = get_data(symbol)
+            df = get_data(symbol, timeframe=mt5.TIMEFRAME_H1, n=100)
+            _, _, major_trend, _, _ = find_support_resistance_advanced(df)
+
             if df.empty:
                 time.sleep(60 * 15)
                 continue
@@ -313,6 +371,13 @@ def main_loop():
             if None in (support, resistance, trend, rsi):
                 time.sleep(60 * 15)
                 continue
+
+            if major_trend != trend:
+                print("⚡ เทรนด์ H1 ขัดกับ M15 - ไม่เข้าเทรด")
+                time.sleep(60 * 15)
+                continue
+
+            modify_order_trailing(symbol)
 
             # 🔄 ตรวจสอบการเปลี่ยนเทรนด์
             # if trend != last_trend:
@@ -350,6 +415,13 @@ def main_loop():
             print(f"📊 Vol: {volume_ok}, Divergence: {divergence}, atr: {atr} ")
             print(f"📊 has_buy: {has_buy}, has_sell: {has_sell},")
             print(f"🔢 Fib: {fib_levels}")  # พิมพ์ค่า Fibonacci levels
+            print(f"🔢 Time to trade: {is_good_time_to_trade()}")
+            print(f"🔢 Lot Size: {calculate_lot_size()}")
+
+            if not is_good_time_to_trade():
+                print("⏳ เวลานี้ไม่เหมาะกับการเทรด")
+                time.sleep(60 * 15)
+                continue
 
             # เงื่อนไขกลยุทธ์
             if trend == "uptrend" and rsi < 70:
@@ -359,7 +431,7 @@ def main_loop():
                 ):
                     sl = ask_price - 1.5 * atr
                     tp = ask_price + 3 * atr
-                    result = send_order(symbol, lot, mt5.ORDER_TYPE_BUY, sl, tp)
+                    result = send_order(symbol, calculate_lot_size(), mt5.ORDER_TYPE_BUY, sl, tp)
 
             elif trend == "downtrend" and rsi > 30:
                 if (
@@ -368,7 +440,7 @@ def main_loop():
                 ):
                     sl = bid_price + 1.5 * atr
                     tp = bid_price - 3 * atr
-                    result = send_order(symbol, lot, mt5.ORDER_TYPE_SELL, sl, tp)
+                    result = send_order(symbol, calculate_lot_size(), mt5.ORDER_TYPE_SELL, sl, tp)
             else:
                 print("📉 Sideway หรือ RSI/Fib ไม่เข้าเงื่อนไข - ไม่ทำรายการ")
 
