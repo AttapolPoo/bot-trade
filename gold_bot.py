@@ -351,108 +351,94 @@ def should_stop_trading():
         return True
     return False
 
-def main_loop():
+def main_loop(symbol, lot, timeframe, stop_callback=None, log_callback=None):
     if not mt5.initialize() or not mt5.terminal_info():
-        print("❌ ไม่สามารถเชื่อมต่อ MT5 ได้")
+        if log_callback:
+            log_callback("❌ ไม่สามารถเชื่อมต่อ MT5 ได้")
         return
 
     try:
         while True:
-            df = get_data(symbol, timeframe=mt5.TIMEFRAME_H1, n=100)
-            _, _, major_trend, _, _ = find_support_resistance_advanced(df)
+            if stop_callback and stop_callback():
+                if log_callback:
+                    log_callback("🛑 หยุดการทำงานของ Bot ตามคำสั่งผู้ใช้")
+                break
 
+            df = get_data(symbol, timeframe=timeframe, n=100)
             if df.empty:
-                time.sleep(60 * 15)
+                if log_callback:
+                    log_callback("⚠️ ไม่พบข้อมูลแท่งเทียน")
+                time.sleep(60)
                 continue
 
-            support, resistance, trend, fib_levels, rsi = (
-                find_support_resistance_advanced(df)
-            )
+            support, resistance, trend, fib_levels, rsi = find_support_resistance_advanced(df)
             if None in (support, resistance, trend, rsi):
-                time.sleep(60 * 15)
+                if log_callback:
+                    log_callback("⚠️ ข้อมูลไม่เพียงพอในการวิเคราะห์")
+                time.sleep(60)
                 continue
-
-            if major_trend != trend:
-                print("⚡ เทรนด์ H1 ขัดกับ M15 - ไม่เข้าเทรด")
-                time.sleep(60 * 15)
-                continue
-
-            modify_order_trailing(symbol)
-
-            # 🔄 ตรวจสอบการเปลี่ยนเทรนด์
-            # if trend != last_trend:
-            #     print(f"🔁 Trend เปลี่ยนจาก {last_trend} → {trend}")
-
-            #     if trend == "uptrend":
-            #         close_positions(symbol, mt5.POSITION_TYPE_SELL, mt5.ORDER_TYPE_BUY)
-            #     elif trend == "downtrend":
-            #         close_positions(symbol, mt5.POSITION_TYPE_BUY, mt5.ORDER_TYPE_SELL)
-            #     elif trend == 'sideways':
-            #         close_positions(symbol, mt5.POSITION_TYPE_SELL, mt5.ORDER_TYPE_BUY)
-            #         close_positions(symbol, mt5.POSITION_TYPE_BUY, mt5.ORDER_TYPE_SELL)
-
-            #     last_trend = trend  # อัปเดตค่า trend ล่าสุด
 
             tick = mt5.symbol_info_tick(symbol)
+            if tick is None:
+                if log_callback:
+                    log_callback("⚠️ ไม่สามารถดึงข้อมูล tick ได้")
+                time.sleep(60)
+                continue
+
             bid_price = tick.bid
             ask_price = tick.ask
+
+            atr = calculate_atr(df).iloc[-1]
 
             positions = mt5.positions_get(symbol=symbol)
             has_buy = any(p.type == mt5.POSITION_TYPE_BUY for p in positions) if positions else False
             has_sell = any(p.type == mt5.POSITION_TYPE_SELL for p in positions) if positions else False
 
-            # ฟังก์ชันช่วยเทียบว่า "ใกล้" level ไหม
-            def near(price, level, tolerance=0.0015):
-                return abs(price - level) <= level * tolerance
-            
-            atr = calculate_atr(df).iloc[-1]
-
-            # Check volume spike
-            volume_ok = is_volume_spike(df)
-            divergence = detect_rsi_divergence(df)
-
-            print(f"📊 Bid: {bid_price:.2f}, Ask: {ask_price:.2f}, Trend: {trend}, S: {support:.2f}, R: {resistance:.2f}, RSI: {rsi:.2f}")
-            print(f"📊 Vol: {volume_ok}, Divergence: {divergence}, atr: {atr} ")
-            print(f"📊 has_buy: {has_buy}, has_sell: {has_sell},")
-            print(f"🔢 Fib: {fib_levels}")  # พิมพ์ค่า Fibonacci levels
-            print(f"🔢 Time to trade: {is_good_time_to_trade()}")
-            print(f"🔢 Lot Size: {calculate_lot_size()}")
+            log_message = (
+                f"📊 Bid: {bid_price:.2f}, Ask: {ask_price:.2f}, Trend: {trend}, "
+                f"S: {support:.2f}, R: {resistance:.2f}, RSI: {rsi:.2f}, ATR: {atr:.2f}"
+            )
+            if log_callback:
+                log_callback(log_message)
 
             if not is_good_time_to_trade():
-                print("⏳ เวลานี้ไม่เหมาะกับการเทรด")
-                time.sleep(60 * 15)
+                if log_callback:
+                    log_callback("⏳ เวลานี้ไม่เหมาะกับการเทรด")
+                time.sleep(60)
                 continue
 
-            # เงื่อนไขกลยุทธ์
-            if trend == "uptrend" and rsi < 70:
-                if (
-                    near(ask_price, support) or 
-                    near(ask_price, fib_levels.get('fib_38.2', 0))
-                ):
+            def near(price, level, tolerance=0.0015):
+                return abs(price - level) <= level * tolerance
+
+            if trend == "uptrend" and rsi < 70 and not has_buy:
+                if near(ask_price, support) or near(ask_price, fib_levels.get('fib_38.2', 0)):
                     sl = ask_price - 1.5 * atr
                     tp = ask_price + 3 * atr
-                    result = send_order(symbol, calculate_lot_size(), mt5.ORDER_TYPE_BUY, sl, tp)
+                    result = send_order(symbol, lot, mt5.ORDER_TYPE_BUY, sl, tp)
+                    if log_callback:
+                        log_callback("✅ ส่งคำสั่ง Buy เรียบร้อย")
 
-            elif trend == "downtrend" and rsi > 30:
-                if (
-                    near(bid_price, resistance) or 
-                    near(bid_price, fib_levels.get('fib_61.8', 999999))
-                ):
+            elif trend == "downtrend" and rsi > 30 and not has_sell:
+                if near(bid_price, resistance) or near(bid_price, fib_levels.get('fib_61.8', 999999)):
                     sl = bid_price + 1.5 * atr
                     tp = bid_price - 3 * atr
-                    result = send_order(symbol, calculate_lot_size(), mt5.ORDER_TYPE_SELL, sl, tp)
+                    result = send_order(symbol, lot, mt5.ORDER_TYPE_SELL, sl, tp)
+                    if log_callback:
+                        log_callback("✅ ส่งคำสั่ง Sell เรียบร้อย")
+
             else:
-                print("📉 Sideway หรือ RSI/Fib ไม่เข้าเงื่อนไข - ไม่ทำรายการ")
+                if log_callback:
+                    log_callback("📉 Sideway หรือเงื่อนไขไม่เข้าเทรด - ไม่ทำรายการ")
 
-            print("⏳ รอรอบถัดไป...\n")
-            time.sleep(60 * 15)
+            if log_callback:
+                log_callback("⏳ รอรอบถัดไป...\n")
 
-    except KeyboardInterrupt:
-        print("\n🛑 หยุดด้วย KeyboardInterrupt")
+            time.sleep(60)
+
+    except Exception as e:
+        if log_callback:
+            log_callback(f"❌ เกิดข้อผิดพลาด: {str(e)}")
     finally:
         mt5.shutdown()
-        print("🔌 ปิดการเชื่อมต่อ MT5")
-
-
-if __name__ == "__main__":
-    main_loop()
+        if log_callback:
+            log_callback("🔌 ปิดการเชื่อมต่อ MT5")
