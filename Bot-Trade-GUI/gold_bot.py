@@ -33,7 +33,7 @@ def get_supported_filling_mode(symbol):
     return None
 
 
-def get_data(symbol, timeframe=mt5.TIMEFRAME_M15, n=100):
+def get_data(symbol, timeframe, n=100):
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n)
     if rates is None or len(rates) == 0:
         print(f"❌ ไม่พบข้อมูลแท่งเทียนสำหรับ {symbol}")
@@ -98,7 +98,7 @@ def calculate_rsi(df, period=14):
     return rsi
 
 # ⬇️ เพิ่มในฟังก์ชัน get_data
-def get_data(symbol, timeframe=mt5.TIMEFRAME_M15, n=100):
+def get_data(symbol, timeframe, n=100):
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n)
     if rates is None or len(rates) == 0:
         print(f"❌ ไม่พบข้อมูลแท่งเทียนสำหรับ {symbol}")
@@ -351,6 +351,115 @@ def should_stop_trading():
         return True
     return False
 
+def calculate_ema(series, period=14):
+    """คำนวณ EMA ของ pandas Series"""
+    return series.ewm(span=period, adjust=False).mean()
+
+def find_support_resistance_advanced(df, ma_period=20, ema_period=14):
+    if len(df) < max(ma_period, ema_period) + 2:
+        print("❌ ข้อมูลไม่พอสำหรับการวิเคราะห์")
+        return None, None, None, {}, None, None
+
+    # คำนวณ pivot และ swing high/low
+    pivot_support, pivot_resistance = calculate_pivot_points(df)
+    swing_supports = [
+        df["low"].iloc[i] for i in range(1, len(df) - 1) if is_support(df, i)
+    ]
+    swing_resistances = [
+        df["high"].iloc[i] for i in range(1, len(df) - 1) if is_resistance(df, i)
+    ]
+
+    support = (
+        max(min(swing_supports), pivot_support) if swing_supports else pivot_support
+    )
+    resistance = (
+        min(max(swing_resistances), pivot_resistance)
+        if swing_resistances
+        else pivot_resistance
+    )
+
+    # ค่าเฉลี่ยเคลื่อนที่ SMA
+    df["ma_fast"] = df["close"].rolling(window=10).mean()
+    df["ma_slow"] = df["close"].rolling(window=ma_period).mean()
+
+    # ค่า EMA
+    df["ema"] = calculate_ema(df["close"], period=ema_period)
+
+    # คำนวณ RSI
+    df["rsi"] = calculate_rsi(df)
+
+    # ค่าล่าสุด
+    last_close = df["close"].iloc[-1]
+    ma_fast = df["ma_fast"].iloc[-1]
+    ma_slow = df["ma_slow"].iloc[-1]
+    ema_last = df["ema"].iloc[-1]
+    ma_slope = df["ma_slow"].diff().iloc[-1]
+    last_rsi = df["rsi"].iloc[-1]
+
+    # ตัดสินใจเทรนด์โดยใช้ EMA ประกอบ
+    if pd.isna(ma_fast) or pd.isna(ma_slow) or pd.isna(ema_last):
+        trend = "unknown"
+    elif ma_fast > ma_slow and ma_slope > 0 and last_close > ma_fast and last_close > ema_last:
+        trend = "uptrend"
+    elif ma_fast < ma_slow and ma_slope < 0 and last_close < ma_fast and last_close < ema_last:
+        trend = "downtrend"
+    else:
+        trend = "sideways"
+
+    # Fibonacci
+    fib_levels = calculate_fibonacci_levels(df)
+
+    return support, resistance, trend, fib_levels, last_rsi, ema_last
+
+def calculate_buy_sell_pressure(df):
+    if len(df) < 2:
+        return "neutral"
+
+    current = df.iloc[-1]
+    previous = df.iloc[-2]
+
+    body = abs(current["close"] - current["open"])
+    direction = "buy" if current["close"] > current["open"] else "sell"
+    volume = current["real_volume"]
+
+    # สร้างแรงเทียบกับค่าเฉลี่ย volume
+    avg_volume = df["real_volume"].rolling(window=20).mean().iloc[-1]
+    volume_ratio = volume / avg_volume if avg_volume != 0 else 1
+
+    if direction == "buy" and volume_ratio > 1.2 and body > (current["high"] - current["low"]) * 0.6:
+        return "strong_buy"
+    elif direction == "sell" and volume_ratio > 1.2 and body > (current["high"] - current["low"]) * 0.6:
+        return "strong_sell"
+    else:
+        return "neutral"
+
+def detect_reversal_pattern(df):
+    if len(df) < 2:
+        return None
+
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+
+    # Bullish Engulfing
+    if (
+        prev["close"] < prev["open"]  # แท่งก่อนเป็นแดง
+        and curr["close"] > curr["open"]  # แท่งนี้เป็นเขียว
+        and curr["close"] > prev["open"]
+        and curr["open"] < prev["close"]
+    ):
+        return "bullish_engulfing"
+
+    # Bearish Engulfing
+    elif (
+        prev["close"] > prev["open"]
+        and curr["close"] < curr["open"]
+        and curr["close"] < prev["open"]
+        and curr["open"] > prev["close"]
+    ):
+        return "bearish_engulfing"
+
+    return None
+
 def main_loop(symbol, lot, timeframe, stop_callback=None, log_callback=None):
     if not mt5.initialize() or not mt5.terminal_info():
         if log_callback:
@@ -371,7 +480,15 @@ def main_loop(symbol, lot, timeframe, stop_callback=None, log_callback=None):
                 time.sleep(60)
                 continue
 
-            support, resistance, trend, fib_levels, rsi = find_support_resistance_advanced(df)
+            support, resistance, trend, fib_levels, rsi, ema = find_support_resistance_advanced(df)
+
+            # log_message = (
+            #     f"📊 Bid: {bid_price:.2f}, Ask: {ask_price:.2f}, Trend: {trend}, "
+            #     f"S: {support:.2f}, R: {resistance:.2f}, RSI: {rsi:.2f}, EMA: {ema:.2f}, ATR: {atr:.2f}"
+            # )
+            # if log_callback:
+            #     log_callback(log_message)
+
             if None in (support, resistance, trend, rsi):
                 if log_callback:
                     log_callback("⚠️ ข้อมูลไม่เพียงพอในการวิเคราะห์")
@@ -379,6 +496,7 @@ def main_loop(symbol, lot, timeframe, stop_callback=None, log_callback=None):
                 continue
 
             tick = mt5.symbol_info_tick(symbol)
+
             if tick is None:
                 if log_callback:
                     log_callback("⚠️ ไม่สามารถดึงข้อมูล tick ได้")
@@ -388,18 +506,22 @@ def main_loop(symbol, lot, timeframe, stop_callback=None, log_callback=None):
             bid_price = tick.bid
             ask_price = tick.ask
 
+            pressure = calculate_buy_sell_pressure(df)
+            reversal = detect_reversal_pattern(df)
+
             atr = calculate_atr(df).iloc[-1]
+
+            log_message = (
+                f"📊 Bid: {bid_price:.2f}, Ask: {ask_price:.2f}, Trend: {trend}, "
+                f"S: {support:.2f}, R: {resistance:.2f}, RSI: {rsi:.2f}, ATR: {atr:.2f}, "
+                f"pressure: {pressure}, reversal: {reversal}"
+            )
+            if log_callback:
+                log_callback(log_message)
 
             positions = mt5.positions_get(symbol=symbol)
             has_buy = any(p.type == mt5.POSITION_TYPE_BUY for p in positions) if positions else False
             has_sell = any(p.type == mt5.POSITION_TYPE_SELL for p in positions) if positions else False
-
-            log_message = (
-                f"📊 Bid: {bid_price:.2f}, Ask: {ask_price:.2f}, Trend: {trend}, "
-                f"S: {support:.2f}, R: {resistance:.2f}, RSI: {rsi:.2f}, ATR: {atr:.2f}"
-            )
-            if log_callback:
-                log_callback(log_message)
 
             if not is_good_time_to_trade():
                 if log_callback:
@@ -410,25 +532,25 @@ def main_loop(symbol, lot, timeframe, stop_callback=None, log_callback=None):
             def near(price, level, tolerance=0.0015):
                 return abs(price - level) <= level * tolerance
 
-            if trend == "uptrend" and rsi < 70 and not has_buy:
-                if near(ask_price, support) or near(ask_price, fib_levels.get('fib_38.2', 0)):
-                    sl = ask_price - 1.5 * atr
-                    tp = ask_price + 3 * atr
-                    result = send_order(symbol, lot, mt5.ORDER_TYPE_BUY, sl, tp)
-                    if log_callback:
-                        log_callback("✅ ส่งคำสั่ง Buy เรียบร้อย")
+            # if trend == "uptrend" and rsi < 70 and not has_buy:
+            #     if near(ask_price, support) or near(ask_price, fib_levels.get('fib_38.2', 0)):
+            #         sl = ask_price - 1.5 * atr
+            #         tp = ask_price + 3 * atr
+            #         result = send_order(symbol, lot, mt5.ORDER_TYPE_BUY, sl, tp)
+            #         if log_callback:
+            #             log_callback("✅ ส่งคำสั่ง Buy เรียบร้อย")
 
-            elif trend == "downtrend" and rsi > 30 and not has_sell:
-                if near(bid_price, resistance) or near(bid_price, fib_levels.get('fib_61.8', 999999)):
-                    sl = bid_price + 1.5 * atr
-                    tp = bid_price - 3 * atr
-                    result = send_order(symbol, lot, mt5.ORDER_TYPE_SELL, sl, tp)
-                    if log_callback:
-                        log_callback("✅ ส่งคำสั่ง Sell เรียบร้อย")
+            # elif trend == "downtrend" and rsi > 30 and not has_sell:
+            #     if near(bid_price, resistance) or near(bid_price, fib_levels.get('fib_61.8', 999999)):
+            #         sl = bid_price + 1.5 * atr
+            #         tp = bid_price - 3 * atr
+            #         result = send_order(symbol, lot, mt5.ORDER_TYPE_SELL, sl, tp)
+            #         if log_callback:
+            #             log_callback("✅ ส่งคำสั่ง Sell เรียบร้อย")
 
-            else:
-                if log_callback:
-                    log_callback("📉 Sideway หรือเงื่อนไขไม่เข้าเทรด - ไม่ทำรายการ")
+            # else:
+            #     if log_callback:
+            #         log_callback("📉 Sideway หรือเงื่อนไขไม่เข้าเทรด - ไม่ทำรายการ")
 
             if log_callback:
                 log_callback("⏳ รอรอบถัดไป...\n")

@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 import threading
 import MetaTrader5 as mt5
 import gold_bot
+import time  # เพิ่มบรรทัดนี้ที่ import ด้านบน
 
 
 class TradingApp:
@@ -23,7 +24,7 @@ class TradingApp:
         self.lot_entry.insert(0, "0.01")
         self.lot_entry.grid(row=1, column=1, padx=5, pady=5)
 
-        self.timeframe_combobox = ttk.Combobox(master, values=['M1', 'M5', 'M15', 'H1'], state="readonly")
+        self.timeframe_combobox = ttk.Combobox(master, values=['M1', 'M5', 'M15', 'H1', 'H4', 'D1'], state="readonly")
         self.timeframe_combobox.current(2)  # Default M15
         self.timeframe_combobox.grid(row=2, column=1, padx=5, pady=5)
 
@@ -45,10 +46,24 @@ class TradingApp:
             'M5': mt5.TIMEFRAME_M5,
             'M15': mt5.TIMEFRAME_M15,
             'H1': mt5.TIMEFRAME_H1,
+            'H4': mt5.TIMEFRAME_H4,
+            'D1': mt5.TIMEFRAME_D1,
         }
 
         # Handle closing
         master.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    # เพิ่ม Label แสดงนาฬิกา
+        self.clock_label = tk.Label(master, text="", font=("Helvetica", 12))
+        self.clock_label.grid(row=5, column=0, columnspan=2, pady=(0,10))
+        
+        # เริ่มอัพเดตนาฬิกา
+        self.update_clock()
+
+    def update_clock(self):
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.clock_label.config(text="Current Time: " + current_time)
+        self.master.after(1000, self.update_clock)  # เรียกตัวเองทุก 1000ms = 1 วินาที
 
     def start_bot(self):
         if self.running:
