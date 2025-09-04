@@ -5,76 +5,133 @@ import sys
 import numpy as np
 import os
 from datetime import datetime
+from typing import Optional, Tuple
 
-# 1. เชื่อมต่อ MT5
+"""
+MT5 GOLD# Bot (Refactored + M15 Context + Range/Order-Block Mode + Zone Exits)
+- Multi-TF: H1 (major) + M15 (context) + M5 (signal)
+- Trending Mode: H1 == M15 direction, M5 as trigger
+- Range Mode: M15 sideways ⇒ trade bounces at M15 range bounds (support/resistance)
+- Order Block (OB) heuristic on M15: last opposite candle before BOS; allow retest entries
+- **Zone-based exits (scalp): SL/TP อิงโซน S/R หรือ OB/Range แบบเก็บสั้น**
+- ATR-based เครื่องมือยังคงอยู่เป็น fallback
+- Volume spike (fallback tick_volume) + RSI (Wilder) + basic RSI divergence (bullish)
+- Lot sizing from tick_value/tick_size & trade_stops_level
+- Use supported filling_mode + deviation from spread
+- Trailing stop + daily DD guard + cooldown per side
+
+คำแนะนำ:
+- ทดสอบบนบัญชีเดโมก่อนเสมอ
+- ปรับค่าพารามิเตอร์ใน CONFIG ให้เข้ากับโบรก/สัญญา
+"""
+
+# ======================
+# CONFIG
+# ======================
+SYMBOL = "GOLD#"
+SIGNAL_TF   = mt5.TIMEFRAME_M5
+CONTEXT_TF  = mt5.TIMEFRAME_M15
+MAJOR_TF    = mt5.TIMEFRAME_H1
+HISTORY_SIGNAL  = 600
+HISTORY_CONTEXT = 600
+HISTORY_MAJOR   = 400
+
+# Risk/Reward
+RISK_PCT      = 1.0     # % ความเสี่ยงต่อออเดอร์
+ATR_SL_MULT   = 1.5     # SL = 1.5 * ATR(M5) (ใช้เมื่อ EXIT_MODE="ATR")
+ATR_TP_MULT   = 3.0     # TP = 3.0 * ATR(M5) (ใช้เมื่อ EXIT_MODE="ATR")
+ATR_NEAR_K    = 0.30    # ระยะ "ใกล้ระดับ" = 0.30 * ATR(M5)
+
+# Exits Mode
+EXIT_MODE        = "ZONE"  # "ZONE" (สั้นตามโซน) หรือ "ATR"
+ZONE_TP_FRAC     = 0.25     # เอากำไร % ของระยะไปยังโซนฝั่งตรงข้าม (เช่น 25%)
+ZONE_TP_ATR      = 1.0      # ถ้าหาโซนฝั่งตรงข้ามไม่ได้ ให้ใช้ TP ≈ 1.0 * ATR เป็นสั้น ๆ แทน
+ZONE_SL_PAD_ATR  = 0.30     # SL วางเลยโซนออกไป ~0.30 * ATR
+OB_PAD_K_ATR     = 0.10     # ขยายโซน OB ด้วย ATR เวลาเช็คการสัมผัส
+
+# Flow control
+COOLDOWN_SEC  = 120     # คูลดาวน์ต่อฝั่งเป็นวินาที
+MAX_OPEN_SIDE = 5       # จำกัดจำนวนโพซิชันต่อฝั่ง
+AVOID_HOURS_LOCAL = {3,4,5}  # ช่วงเวลาที่หลีกเลี่ยงเทรด (Asia/Bangkok)
+
+# Feature toggles
+ENABLE_RANGE_MODE   = True   # เทรดกรอบ sideway บน M15
+RANGE_LOOKBACK_BARS = 96     # ใช้ช่วงดูกรอบบน/ล่างบน M15
+RANGE_RSI_BUY_MAX   = 45     # RSI(M5) ควรต่ำกว่าค่านี้ใกล้กรอบล่าง
+RANGE_RSI_SELL_MIN  = 55     # RSI(M5) ควรมากกว่าค่านี้ใกล้กรอบบน
+
+ENABLE_ORDER_BLOCK  = True   # ใช้ OB จาก M15 เป็นโซนเพิ่ม
+OB_LOOKBACK_BARS    = 120
+OB_BOS_LOOKBACK     = 10     # ใช้ swing ย้อนหลัง N แท่งในการวัด BOS แบบหยาบ
+OB_ATR_MULT         = 1.0    # กำหนดแรง BOS เทียบ ATR (ยิ่งมากยิ่งเข้ม)
+
+# ======================
+# INIT
+# ======================
 if not mt5.initialize():
-    print("❌ initialize() ล้มเหลว, error code =", mt5.last_error())
+    print("❌ initialize() ล้มเหลว, error =", mt5.last_error())
     sys.exit()
 
-symbol = "GOLD#"
-lot = 0.01
+if not mt5.symbol_select(SYMBOL, True):
+    print(f"❌ เลือก symbol {SYMBOL} ไม่ได้")
+    mt5.shutdown()
+    sys.exit()
 
+# ======================
+# HELPERS
+# ======================
 
-def get_supported_filling_mode(symbol):
+def get_supported_filling_mode(symbol: str):
     info = mt5.symbol_info(symbol)
     if info is None:
         print(f"❌ ไม่พบข้อมูล symbol: {symbol}")
         return None
-
-    for mode in [
-        mt5.ORDER_FILLING_IOC,
-        mt5.ORDER_FILLING_RETURN,
-        mt5.ORDER_FILLING_FOK,
-    ]:
+    for mode in [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN, mt5.ORDER_FILLING_FOK]:
         if info.filling_mode & mode:
             return mode
-
     print(f"❌ Symbol {symbol} ไม่รองรับ filling_mode ใดเลย")
     return None
 
 
-def get_data(symbol, timeframe=mt5.TIMEFRAME_M15, n=100):
+def get_data(symbol: str, timeframe=SIGNAL_TF, n=HISTORY_SIGNAL) -> pd.DataFrame:
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n)
     if rates is None or len(rates) == 0:
-        print(f"❌ ไม่พบข้อมูลแท่งเทียนสำหรับ {symbol}")
+        print(f"❌ ไม่พบข้อมูลแท่งเทียนสำหรับ {symbol} tf={timeframe}")
         return pd.DataFrame()
     df = pd.DataFrame(rates)
     df["time"] = pd.to_datetime(df["time"], unit="s", errors="coerce")
     return df
 
 
-def is_support(df, i):
-    return (
-        df["low"].iloc[i] < df["low"].iloc[i - 1]
-        and df["low"].iloc[i] < df["low"].iloc[i + 1]
-    )
+def is_support(df: pd.DataFrame, i: int) -> bool:
+    return (df["low"].iloc[i] < df["low"].iloc[i-1]) and (df["low"].iloc[i] < df["low"].iloc[i+1])
 
 
-def is_resistance(df, i):
-    return (
-        df["high"].iloc[i] > df["high"].iloc[i - 1]
-        and df["high"].iloc[i] > df["high"].iloc[i + 1]
-    )
+def is_resistance(df: pd.DataFrame, i: int) -> bool:
+    return (df["high"].iloc[i] > df["high"].iloc[i-1]) and (df["high"].iloc[i] > df["high"].iloc[i+1])
 
 
-def calculate_pivot_points(df):
+def calculate_pivot_points(df: pd.DataFrame):
     if len(df) < 1:
         return None, None
     high = df["high"].iloc[-1]
-    low = df["low"].iloc[-1]
-    close = df["close"].iloc[-1]
-    pivot = (high + low + close) / 3
+    low  = df["low"].iloc[-1]
+    close= df["close"].iloc[-1]
+    pivot = (high + low + close) / 3.0
     r1 = 2 * pivot - low
     s1 = 2 * pivot - high
     return s1, r1
 
 
-def calculate_fibonacci_levels(df, lookback=20):
+def calculate_fibonacci_levels(df: pd.DataFrame, lookback=20):
     if len(df) < lookback:
         return {}
-    high = df["high"].iloc[-lookback:].max()
-    low = df["low"].iloc[-lookback:].min()
+    win = df.tail(lookback)
+    high = win["high"].max()
+    low  = win["low"].min()
     diff = high - low
+    if diff <= 0:
+        return {}
     return {
         "fib_0": low,
         "fib_23.6": high - 0.236 * diff,
@@ -85,100 +142,73 @@ def calculate_fibonacci_levels(df, lookback=20):
     }
 
 
-def calculate_rsi(df, period=14):
+def calculate_rsi(df: pd.DataFrame, period=14) -> pd.Series:
     delta = df["close"].diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
+    up = delta.clip(lower=0)
+    down = -delta.clip(upper=0)
+    roll_up = up.ewm(alpha=1/period, adjust=False).mean()
+    roll_down = down.ewm(alpha=1/period, adjust=False).mean()
+    rs = roll_up / roll_down.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
 
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
 
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+def calculate_atr(df: pd.DataFrame, period=14) -> pd.Series:
+    h_l  = df["high"] - df["low"]
+    h_pc = (df["high"] - df["close"].shift(1)).abs()
+    l_pc = (df["low"]  - df["close"].shift(1)).abs()
+    tr = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
+    return tr.ewm(alpha=1/period, adjust=False).mean()
 
-# ⬇️ เพิ่มในฟังก์ชัน get_data
-def get_data(symbol, timeframe=mt5.TIMEFRAME_M15, n=100):
-    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, n)
-    if rates is None or len(rates) == 0:
-        print(f"❌ ไม่พบข้อมูลแท่งเทียนสำหรับ {symbol}")
-        return pd.DataFrame()
-    df = pd.DataFrame(rates)
-    df["time"] = pd.to_datetime(df["time"], unit="s", errors="coerce")
-    return df
 
-# ✅ ข้อ 1: Volume spike filter
-def is_volume_spike(df, threshold=1.5):
-    avg_volume = df["real_volume"].rolling(window=20).mean()
-    return df["real_volume"].iloc[-1] > threshold * avg_volume.iloc[-1]
+def _volume_series(df: pd.DataFrame) -> pd.Series:
+    v = df.get("real_volume")
+    if v is None or (v.fillna(0) == 0).all():
+        v = df.get("tick_volume")
+    if v is None:
+        v = pd.Series([0]*len(df), index=df.index)
+    return v
 
-# ✅ ข้อ 2: RSI Divergence (พื้นฐาน)
-def detect_rsi_divergence(df):
-    if len(df) < 5 or df["rsi"].isna().sum() > 0:
+
+def is_volume_spike(df: pd.DataFrame, threshold=1.5, win=20) -> bool:
+    v = _volume_series(df)
+    if len(v) < win:
         return False
-    return (
-        df["low"].iloc[-2] < df["low"].iloc[-3]
-        and df["rsi"].iloc[-2] > df["rsi"].iloc[-3]
-    )
+    avg = v.rolling(win).mean()
+    if pd.isna(avg.iloc[-1]) or avg.iloc[-1] == 0:
+        return False
+    return v.iloc[-1] > threshold * avg.iloc[-1]
 
-# ✅ ข้อ 3: ATR-based SL/TP
-def calculate_atr(df, period=14):
-    df["H-L"] = df["high"] - df["low"]
-    df["H-PC"] = abs(df["high"] - df["close"].shift(1))
-    df["L-PC"] = abs(df["low"] - df["close"].shift(1))
-    tr = df[["H-L", "H-PC", "L-PC"]].max(axis=1)
-    atr = tr.rolling(window=period).mean()
-    return atr
 
-# ✅ ข้อ 5: Logging
-def log_trade(action, price, trend, rsi, support, resistance, fib, result):
-    filename = "trade_log.csv"
-    header = not os.path.exists(filename)
-    with open(filename, "a") as f:
-        if header:
-            f.write("datetime,action,price,trend,rsi,support,resistance,fib,result\n")
-        f.write(
-            f"{datetime.now()},{action},{price},{trend},{rsi:.2f},{support:.2f},{resistance:.2f},{fib},{result.retcode if result else 'N/A'}\n"
-        )
+def detect_rsi_divergence(df: pd.DataFrame, lookback=5) -> bool:
+    tail = df.tail(lookback)
+    if len(tail) < 4 or tail["rsi"].isna().any():
+        return False
+    return (tail["low"].iloc[-2] < tail["low"].iloc[-3]) and (tail["rsi"].iloc[-2] > tail["rsi"].iloc[-3])
 
-def find_support_resistance_advanced(df, ma_period=20):
+
+def find_support_resistance_advanced(df: pd.DataFrame, ma_period=20):
     if len(df) < ma_period + 2:
         print("❌ ข้อมูลไม่พอสำหรับการวิเคราะห์")
         return None, None, None, {}, None
 
-    # คำนวณ pivot และ swing high/low
-    pivot_support, pivot_resistance = calculate_pivot_points(df)
-    swing_supports = [
-        df["low"].iloc[i] for i in range(1, len(df) - 1) if is_support(df, i)
-    ]
-    swing_resistances = [
-        df["high"].iloc[i] for i in range(1, len(df) - 1) if is_resistance(df, i)
-    ]
+    df = df.copy()
+    pv_s, pv_r = calculate_pivot_points(df)
+    swings_s = [df["low"].iloc[i] for i in range(1, len(df)-1) if is_support(df, i)]
+    swings_r = [df["high"].iloc[i] for i in range(1, len(df)-1) if is_resistance(df, i)]
 
-    support = (
-        max(min(swing_supports), pivot_support) if swing_supports else pivot_support
-    )
-    resistance = (
-        min(max(swing_resistances), pivot_resistance)
-        if swing_resistances
-        else pivot_resistance
-    )
+    support = max(min(swings_s), pv_s) if swings_s else pv_s
+    resistance = min(max(swings_r), pv_r) if swings_r else pv_r
 
-    # ค่าเฉลี่ยเคลื่อนที่
     df["ma_fast"] = df["close"].rolling(window=10).mean()
     df["ma_slow"] = df["close"].rolling(window=ma_period).mean()
-
-    # คำนวณ RSI
     df["rsi"] = calculate_rsi(df)
 
-    # ค่าล่าสุด
     last_close = df["close"].iloc[-1]
     ma_fast = df["ma_fast"].iloc[-1]
     ma_slow = df["ma_slow"].iloc[-1]
     ma_slope = df["ma_slow"].diff().iloc[-1]
     last_rsi = df["rsi"].iloc[-1]
 
-    # ตัดสินใจเทรนด์ที่แม่นยำขึ้น
     if pd.isna(ma_fast) or pd.isna(ma_slow):
         trend = "unknown"
     elif ma_fast > ma_slow and ma_slope > 0 and last_close > ma_fast:
@@ -188,264 +218,400 @@ def find_support_resistance_advanced(df, ma_period=20):
     else:
         trend = "sideways"
 
-    # Fibonacci
     fib_levels = calculate_fibonacci_levels(df)
-
     return support, resistance, trend, fib_levels, last_rsi
 
 
+def near_by_atr(price: float, level: float, atr_value: float, k=ATR_NEAR_K) -> bool:
+    if level is None or pd.isna(level) or atr_value is None or pd.isna(atr_value) or atr_value <= 0:
+        return False
+    return abs(price - level) <= k * atr_value
 
-def send_order(symbol, lot, order_type, sl_price, tp_price):
+
+def log_trade(action, price, trend, rsi, support, resistance, fib, result):
+    filename = "trade_log.csv"
+    header = not os.path.exists(filename)
+    with open(filename, "a", encoding="utf-8") as f:
+        if header:
+            f.write("datetime,action,price,trend,rsi,support,resistance,fib,result\n")
+        f.write(f"{datetime.now()},{action},{price},{trend},{rsi:.2f},{support:.2f},{resistance:.2f},{fib},{getattr(result,'retcode','N/A')}\n")
+
+
+def calc_lot_from_risk(symbol: str, risk_pct: float, balance: float, stop_dist_price: float) -> float:
+    info = mt5.symbol_info(symbol)
+    if not info or balance is None or stop_dist_price is None:
+        return 0.01
+
+    min_stop = (info.trade_stops_level or 0) * (info.point or 0.0)
+    stop_dist_price = max(stop_dist_price, min_stop)
+
+    tick_value = info.trade_tick_value or 0.0
+    tick_size  = info.trade_tick_size or (info.point or 0.01)
+    if tick_value <= 0 or tick_size <= 0:
+        return 0.01
+
+    risk_amount = balance * (risk_pct / 100.0)
+    ticks = max(1.0, stop_dist_price / tick_size)
+    raw_lot = risk_amount / (ticks * tick_value)
+
+    step = info.volume_step or 0.01
+    vol_min = info.volume_min or step
+    vol_max = info.volume_max or raw_lot
+    lot = max(vol_min, min(vol_max, round(raw_lot / step) * step))
+    return float(lot)
+
+
+def is_good_time_to_trade() -> bool:
+    now = datetime.now()
+    return now.hour not in AVOID_HOURS_LOCAL
+
+
+def modify_order_trailing(symbol: str, distance_points: float = 500):
+    positions = mt5.positions_get(symbol=symbol)
+    if not positions:
+        return
+    info = mt5.symbol_info(symbol)
+    if not info:
+        return
+    point = info.point
+    for pos in positions:
+        tick = mt5.symbol_info_tick(symbol)
+        if not tick:
+            continue
+        price = tick.ask if pos.type == mt5.POSITION_TYPE_BUY else tick.bid
+        if pos.type == mt5.POSITION_TYPE_BUY and (price - pos.price_open) > distance_points * point:
+            new_sl = price - distance_points * point
+        elif pos.type == mt5.POSITION_TYPE_SELL and (pos.price_open - price) > distance_points * point:
+            new_sl = price + distance_points * point
+        else:
+            continue
+        req = {"action": mt5.TRADE_ACTION_SLTP, "position": pos.ticket, "sl": new_sl, "tp": pos.tp}
+        res = mt5.order_send(req)
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            print(f"🔒 ปรับ SL ใหม่เป็น {new_sl}")
+
+
+def _send_market(symbol: str, volume: float, order_type: int, sl: float, tp: float):
     tick = mt5.symbol_info_tick(symbol)
-    if tick is None:
-        print("❌ ไม่สามารถดึงข้อมูล tick ได้")
+    info = mt5.symbol_info(symbol)
+    if not tick or not info:
+        print("❌ ไม่มี tick หรือ symbol_info")
         return None
 
     price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
+    fill_mode = get_supported_filling_mode(symbol) or mt5.ORDER_FILLING_RETURN
+    deviation = max(10, int((info.spread or 0) * 2))
 
-    for mode in [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN]:
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": symbol,
-            "volume": lot,
-            "type": order_type,
-            "price": price,
-            "sl": sl_price,
-            "tp": tp_price,
-            "deviation": 10,
-            "magic": 123456,
-            "comment": f"Auto Order (mode={mode})",
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mode,
-        }
+    min_stop = (info.trade_stops_level or 0) * (info.point or 0)
+    if order_type == mt5.ORDER_TYPE_BUY:
+        sl = min(sl, price - min_stop)
+        tp = max(tp, price + min_stop)
+    else:
+        sl = max(sl, price + min_stop)
+        tp = min(tp, price - min_stop)
 
-        result = mt5.order_send(request)
+    req = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": symbol,
+        "volume": volume,
+        "type": order_type,
+        "price": price,
+        "sl": sl,
+        "tp": tp,
+        "deviation": deviation,
+        "magic": 123456,
+        "comment": f"Auto Order (mode={fill_mode})",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": fill_mode,
+    }
 
-        if result is None:
-            print(f"❌ ส่งคำสั่งไม่สำเร็จ (mode={mode}) → result=None")
-            continue
-
-        print("📤 ส่งคำสั่ง:", result)
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            print("✅ คำสั่งสำเร็จ!")
-            return result  # ✅ คืนค่าจริง
-
-        print(f"⚠️ คำสั่งล้มเหลว: retcode={result.retcode}, msg={result.comment}")
-
-    print("❌ คำสั่งไม่สำเร็จในทุก mode")
-    return None
+    res = mt5.order_send(req)
+    if res:
+        print("📤 ส่งคำสั่ง:", res)
+    return res
 
 
-def close_all_orders(symbol):
-    positions = mt5.positions_get(symbol=symbol)
-    if positions is None:
-        print("❌ ไม่สามารถดึงรายการ position ได้")
-        return
+def send_order(symbol: str, lot: float, order_type: int, sl_price: float, tp_price: float):
+    return _send_market(symbol, lot, order_type, sl_price, tp_price)
 
-    for pos in positions:
-        opposite_order_type = (
-            mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
-        )
-        tick = mt5.symbol_info_tick(symbol)
-        price = tick.bid if opposite_order_type == mt5.ORDER_TYPE_SELL else tick.ask
+# ======================
+# RANGE & ORDER BLOCK
+# ======================
 
-        result = send_order(symbol, pos.volume, opposite_order_type, 0, 0)
-        print(f"📤 ปิด Order {pos.ticket}, ปริมาณ: {pos.volume}, ผลลัพธ์: {result}")
+def compute_range_bounds(df_m15: pd.DataFrame, lookback: int = RANGE_LOOKBACK_BARS) -> Tuple[Optional[float], Optional[float]]:
+    if len(df_m15) < max(20, lookback):
+        return None, None
+    tail = df_m15.tail(lookback)
+    return float(tail["low"].min()), float(tail["high"].max())
 
 
-def open_buy_order(symbol, lot):
-    tick = mt5.symbol_info_tick(symbol)
-    point = mt5.symbol_info(symbol).point
-    sl_price = tick.ask - 500 * point
-    tp_price = tick.ask + 1500 * point
-    return send_order(symbol, lot, mt5.ORDER_TYPE_BUY, sl_price, tp_price)
-
-
-def open_sell_order(symbol, lot):
-    tick = mt5.symbol_info_tick(symbol)
-    point = mt5.symbol_info(symbol).point
-    sl_price = tick.bid + 500 * point
-    tp_price = tick.bid - 1500 * point
-    return send_order(symbol, lot, mt5.ORDER_TYPE_SELL, sl_price, tp_price)
-
-
-def close_positions(symbol, position_type, opposite_order_type):
-    positions = mt5.positions_get(symbol=symbol)
-    if positions is None:
-        print("❌ ไม่สามารถดึงรายการ position ได้")
-        return
-    
-    for pos in positions:
-        if pos.type == position_type:
-            tick = mt5.symbol_info_tick(symbol)
-            price = tick.bid if opposite_order_type == mt5.ORDER_TYPE_SELL else tick.ask
-            
-            result = send_order(symbol, pos.volume, opposite_order_type, 0, 0)
-
-            if result is None:
-                print("⚠️ การส่งคำสั่งล้มเหลว (result = None)")
-                continue  # ข้ามไป position ถัดไป
-
-            if result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(f"✅ ปิดสถานะ {symbol} จำนวน {pos.volume} lot สำเร็จ")
-            else:
-                print(f"❌ ปิดสถานะไม่สำเร็จ: retcode={result.retcode}, msg={result.comment}")
-
-def calculate_lot_size(risk_percentage=1, account_balance=None, atr=None, stop_loss_pips=None):
-    if account_balance is None or atr is None or stop_loss_pips is None:
-        return 0.01  # fallback
-
-    # เงินที่พร้อมจะเสียในแต่ละ order
-    risk_amount = account_balance * (risk_percentage / 100)
-    
-    # มูลค่าต่อ pip
-    pip_value = 10  # สำหรับทองในบางโบรกเกอร์อาจไม่ใช่ 10 ต้องตรวจสอบที่ mt5.symbol_info(symbol)
-
-    lot_size = risk_amount / (stop_loss_pips * pip_value)
-    return max(round(lot_size, 2), 0.01)
-
-def is_good_time_to_trade():
-    now = datetime.now()
-    if now.hour in [3, 4, 5]:  # ช่วงเวลาน้ำบาง (ตลาด New York ปิด)
+def touch_zone(price: float, zone: Tuple[float,float], atr: float, pad_k: float = OB_PAD_K_ATR) -> bool:
+    if zone is None or atr is None or pd.isna(atr):
         return False
-    return True
+    lo, hi = zone
+    if lo is None or hi is None:
+        return False
+    lo -= pad_k * atr
+    hi += pad_k * atr
+    return lo <= price <= hi
 
-def modify_order_trailing(symbol, distance=500):
-    positions = mt5.positions_get(symbol=symbol)
-    if positions is None:
-        return
 
-    for pos in positions:
-        tick = mt5.symbol_info_tick(symbol)
-        price = tick.ask if pos.type == mt5.POSITION_TYPE_BUY else tick.bid
-        point = mt5.symbol_info(symbol).point
+def find_recent_order_blocks(df: pd.DataFrame, atr_series: Optional[pd.Series] = None,
+                             lookback: int = OB_LOOKBACK_BARS, bos_back: int = OB_BOS_LOOKBACK,
+                             atr_mult: float = OB_ATR_MULT) -> Tuple[Optional[Tuple[float,float]], Optional[Tuple[float,float]]]:
+    if len(df) < max(20, lookback, bos_back+3):
+        return None, None
+    tail = df.tail(lookback).reset_index(drop=True)
+    atr = None
+    if atr_series is not None and len(atr_series) >= len(df):
+        atr = atr_series.tail(lookback).reset_index(drop=True)
 
-        if pos.type == mt5.POSITION_TYPE_BUY and (price - pos.price_open) > distance * point:
-            new_sl = price - distance * point
-        elif pos.type == mt5.POSITION_TYPE_SELL and (pos.price_open - price) > distance * point:
-            new_sl = price + distance * point
+    bull_zone = None
+    bear_zone = None
+
+    for i in range(bos_back+3, len(tail)):
+        win = tail.iloc[i-bos_back:i]
+        ref_atr = (atr.iloc[i] if atr is not None and not pd.isna(atr.iloc[i]) else 0.0)
+        prev_high = win["high"].max()
+        if tail["close"].iloc[i] > prev_high + atr_mult * ref_atr:
+            j = i-1
+            while j >= 1 and not (tail["close"].iloc[j] < tail["open"].iloc[j]):
+                j -= 1
+            if j >= 1:
+                ob_low  = float(min(tail["open"].iloc[j], tail["close"].iloc[j], tail["low"].iloc[j]))
+                ob_high = float(max(tail["open"].iloc[j], tail["close"].iloc[j]))
+                bull_zone = (ob_low, ob_high)
+        prev_low = win["low"].min()
+        if tail["close"].iloc[i] < prev_low - atr_mult * ref_atr:
+            j = i-1
+            while j >= 1 and not (tail["close"].iloc[j] > tail["open"].iloc[j]):
+                j -= 1
+            if j >= 1:
+                ob_low  = float(min(tail["open"].iloc[j], tail["close"].iloc[j]))
+                ob_high = float(max(tail["open"].iloc[j], tail["close"].iloc[j], tail["high"].iloc[j]))
+                bear_zone = (ob_low, ob_high)
+
+    return bull_zone, bear_zone
+
+# ======================
+# ZONE-BASED EXITS (SCALP)
+# ======================
+
+def zone_exits_buy(entry: float, atr: float,
+                   ctx_s: Optional[float], ctx_r: Optional[float],
+                   bull_ob: Optional[Tuple[float,float]],
+                   range_bounds: Optional[Tuple[float,float]]) -> Tuple[float,float]:
+    pad = ZONE_SL_PAD_ATR * atr
+    # เลือกโซนสำหรับ SL
+    if bull_ob and touch_zone(entry, bull_ob, atr):
+        zlo, zhi = bull_ob
+        sl = min(entry - pad, zlo - pad)
+        tp_candidates = []
+        tp_candidates.append(zhi + pad)
+        if ctx_r and ctx_r > entry:
+            tp_candidates.append(entry + ZONE_TP_FRAC * (ctx_r - entry))
+        if range_bounds and range_bounds[1] and range_bounds[1] > entry:
+            tp_candidates.append(entry + ZONE_TP_FRAC * (range_bounds[1] - entry))
+        tp_candidates.append(entry + ZONE_TP_ATR * atr)
+        tp = min([c for c in tp_candidates if c > entry])
+        return sl, tp
+    # ใช้ Support ของ M15 หรือกรอบล่าง
+    base = ctx_s if ctx_s is not None else (range_bounds[0] if range_bounds else None)
+    if base is not None:
+        sl = base - pad
+        opp = None
+        if ctx_r and ctx_r > entry:
+            opp = ctx_r
+        elif range_bounds and range_bounds[1] and range_bounds[1] > entry:
+            opp = range_bounds[1]
+        if opp is not None:
+            tp = entry + ZONE_TP_FRAC * (opp - entry)
         else:
-            continue
+            tp = entry + ZONE_TP_ATR * atr
+        return sl, tp
+    # fallback
+    return entry - ATR_SL_MULT * atr, entry + ATR_TP_MULT * atr
 
-        request = {
-            "action": mt5.TRADE_ACTION_SLTP,
-            "position": pos.ticket,
-            "sl": new_sl,
-            "tp": pos.tp,
-        }
 
-        result = mt5.order_send(request)
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            print(f"🔒 ปรับ SL ใหม่เป็น {new_sl}")
+def zone_exits_sell(entry: float, atr: float,
+                    ctx_s: Optional[float], ctx_r: Optional[float],
+                    bear_ob: Optional[Tuple[float,float]],
+                    range_bounds: Optional[Tuple[float,float]]) -> Tuple[float,float]:
+    pad = ZONE_SL_PAD_ATR * atr
+    if bear_ob and touch_zone(entry, bear_ob, atr):
+        zlo, zhi = bear_ob
+        sl = max(entry + pad, zhi + pad)
+        tp_candidates = []
+        tp_candidates.append(zlo - pad)
+        if ctx_s and ctx_s < entry:
+            tp_candidates.append(entry - ZONE_TP_FRAC * (entry - ctx_s))
+        if range_bounds and range_bounds[0] and range_bounds[0] < entry:
+            tp_candidates.append(entry - ZONE_TP_FRAC * (entry - range_bounds[0]))
+        tp_candidates.append(entry - ZONE_TP_ATR * atr)
+        tp = max([c for c in tp_candidates if c < entry])
+        return sl, tp
+    base = ctx_r if ctx_r is not None else (range_bounds[1] if range_bounds else None)
+    if base is not None:
+        sl = base + pad
+        opp = None
+        if ctx_s and ctx_s < entry:
+            opp = ctx_s
+        elif range_bounds and range_bounds[0] and range_bounds[0] < entry:
+            opp = range_bounds[0]
+        if opp is not None:
+            tp = entry - ZONE_TP_FRAC * (entry - opp)
+        else:
+            tp = entry - ZONE_TP_ATR * atr
+        return sl, tp
+    return entry + ATR_SL_MULT * atr, entry - ATR_TP_MULT * atr
 
-def should_stop_trading():
-    account_info = mt5.account_info()
-    if account_info is None:
-        return False
-
-    balance = account_info.balance
-    equity = account_info.equity
-
-    if equity < balance * 0.95:
-        print("🛑 ขาดทุนเกิน 5% - หยุดเทรดวันนี้")
-        return True
-    return False
+# ======================
+# MAIN LOOP
+# ======================
 
 def main_loop():
-    if not mt5.initialize() or not mt5.terminal_info():
-        print("❌ ไม่สามารถเชื่อมต่อ MT5 ได้")
-        return
-
+    last_trade_time = {"buy": datetime.min, "sell": datetime.min}
     try:
         while True:
-            df = get_data(symbol, timeframe=mt5.TIMEFRAME_H1, n=100)
-            _, _, major_trend, _, _ = find_support_resistance_advanced(df)
+            df_h1  = get_data(SYMBOL, timeframe=MAJOR_TF,   n=HISTORY_MAJOR)
+            df_m15 = get_data(SYMBOL, timeframe=CONTEXT_TF, n=HISTORY_CONTEXT)
+            df_m5  = get_data(SYMBOL, timeframe=SIGNAL_TF,  n=HISTORY_SIGNAL)
+            if df_h1.empty or df_m15.empty or df_m5.empty:
+                time.sleep(30); continue
 
-            if df.empty:
-                time.sleep(60 * 15)
-                continue
+            for d in (df_h1, df_m15, df_m5):
+                d["rsi"] = calculate_rsi(d)
+            atr_m5_series  = calculate_atr(df_m5)
+            atr_m5         = atr_m5_series.iloc[-1]
+            atr_m15_series = calculate_atr(df_m15)
 
-            support, resistance, trend, fib_levels, rsi = (
-                find_support_resistance_advanced(df)
-            )
-            if None in (support, resistance, trend, rsi):
-                time.sleep(60 * 15)
-                continue
+            major_s, major_r, major_trend, major_fib, _ = find_support_resistance_advanced(df_h1)
+            ctx_s,   ctx_r,   ctx_trend,   ctx_fib,   rsi_m15 = find_support_resistance_advanced(df_m15)
+            sig_s,   sig_r,   sig_trend,   sig_fib,   rsi_m5  = find_support_resistance_advanced(df_m5)
 
-            if major_trend != trend:
-                print("⚡ เทรนด์ H1 ขัดกับ M15 - ไม่เข้าเทรด")
-                time.sleep(60 * 15)
-                continue
+            if None in (major_s, major_r, major_trend, ctx_s, ctx_r, ctx_trend, sig_s, sig_r, sig_trend, rsi_m5) or pd.isna(atr_m5):
+                time.sleep(10); continue
 
-            modify_order_trailing(symbol)
+            bull_ob, bear_ob = (None, None)
+            if ENABLE_ORDER_BLOCK:
+                bull_ob, bear_ob = find_recent_order_blocks(df_m15, atr_m15_series, OB_LOOKBACK_BARS, OB_BOS_LOOKBACK, OB_ATR_MULT)
 
-            # 🔄 ตรวจสอบการเปลี่ยนเทรนด์
-            # if trend != last_trend:
-            #     print(f"🔁 Trend เปลี่ยนจาก {last_trend} → {trend}")
+            range_low, range_high = (None, None)
+            if ENABLE_RANGE_MODE:
+                range_low, range_high = compute_range_bounds(df_m15, RANGE_LOOKBACK_BARS)
 
-            #     if trend == "uptrend":
-            #         close_positions(symbol, mt5.POSITION_TYPE_SELL, mt5.ORDER_TYPE_BUY)
-            #     elif trend == "downtrend":
-            #         close_positions(symbol, mt5.POSITION_TYPE_BUY, mt5.ORDER_TYPE_SELL)
-            #     elif trend == 'sideways':
-            #         close_positions(symbol, mt5.POSITION_TYPE_SELL, mt5.ORDER_TYPE_BUY)
-            #         close_positions(symbol, mt5.POSITION_TYPE_BUY, mt5.ORDER_TYPE_SELL)
+            trending_mode = (major_trend == ctx_trend) and (ctx_trend in ("uptrend", "downtrend"))
+            range_mode    = ENABLE_RANGE_MODE and (ctx_trend == "sideways") and (range_low is not None) and (range_high is not None)
 
-            #     last_trend = trend  # อัปเดตค่า trend ล่าสุด
-
-            tick = mt5.symbol_info_tick(symbol)
-            bid_price = tick.bid
-            ask_price = tick.ask
-
-            positions = mt5.positions_get(symbol=symbol)
-            has_buy = any(p.type == mt5.POSITION_TYPE_BUY for p in positions) if positions else False
-            has_sell = any(p.type == mt5.POSITION_TYPE_SELL for p in positions) if positions else False
-
-            # ฟังก์ชันช่วยเทียบว่า "ใกล้" level ไหม
-            def near(price, level, tolerance=0.0015):
-                return abs(price - level) <= level * tolerance
-            
-            atr = calculate_atr(df).iloc[-1]
-
-            # Check volume spike
-            volume_ok = is_volume_spike(df)
-            divergence = detect_rsi_divergence(df)
-
-            print(f"📊 Bid: {bid_price:.2f}, Ask: {ask_price:.2f}, Trend: {trend}, S: {support:.2f}, R: {resistance:.2f}, RSI: {rsi:.2f}")
-            print(f"📊 Vol: {volume_ok}, Divergence: {divergence}, atr: {atr} ")
-            print(f"📊 has_buy: {has_buy}, has_sell: {has_sell},")
-            print(f"🔢 Fib: {fib_levels}")  # พิมพ์ค่า Fibonacci levels
-            print(f"🔢 Time to trade: {is_good_time_to_trade()}")
-            print(f"🔢 Lot Size: {calculate_lot_size()}")
+            if not trending_mode and not range_mode:
+                print(f"⚡ ยังไม่เข้าเงื่อนไขโหมดเทรด | H1={major_trend} M15={ctx_trend} M5={sig_trend}")
+                time.sleep(10); continue
 
             if not is_good_time_to_trade():
-                print("⏳ เวลานี้ไม่เหมาะกับการเทรด")
-                time.sleep(60 * 15)
-                continue
+                print("⏳ ช่วงเวลานี้หลีกเลี่ยงการเทรด"); time.sleep(30); continue
 
-            # เงื่อนไขกลยุทธ์
-            if trend == "uptrend" and rsi < 70:
-                if (
-                    near(ask_price, support) or 
-                    near(ask_price, fib_levels.get('fib_38.2', 0))
-                ):
-                    sl = ask_price - 1.5 * atr
-                    tp = ask_price + 3 * atr
-                    result = send_order(symbol, calculate_lot_size(), mt5.ORDER_TYPE_BUY, sl, tp)
+            modify_order_trailing(SYMBOL)
 
-            elif trend == "downtrend" and rsi > 30:
-                if (
-                    near(bid_price, resistance) or 
-                    near(bid_price, fib_levels.get('fib_61.8', 999999))
-                ):
-                    sl = bid_price + 1.5 * atr
-                    tp = bid_price - 3 * atr
-                    result = send_order(symbol, calculate_lot_size(), mt5.ORDER_TYPE_SELL, sl, tp)
-            else:
-                print("📉 Sideway หรือ RSI/Fib ไม่เข้าเงื่อนไข - ไม่ทำรายการ")
+            tick = mt5.symbol_info_tick(SYMBOL)
+            if not tick:
+                time.sleep(5); continue
+            bid_price, ask_price = tick.bid, tick.ask
+
+            positions = mt5.positions_get(symbol=SYMBOL) or []
+            has_buy  = sum(1 for p in positions if p.type == mt5.POSITION_TYPE_BUY)
+            has_sell = sum(1 for p in positions if p.type == mt5.POSITION_TYPE_SELL)
+
+            vol_ok = is_volume_spike(df_m5)
+            div_ok = detect_rsi_divergence(df_m5)
+
+            print(
+                f"📊 Bid:{bid_price:.2f} Ask:{ask_price:.2f} Trend(H1/M15/M5): {major_trend}/{ctx_trend}/{sig_trend} "
+                f"S(ctx/sig): {ctx_s:.2f}/{sig_s:.2f} R(ctx/sig): {ctx_r:.2f}/{sig_r:.2f} RSI(M5):{rsi_m5:.2f} ATR(M5):{atr_m5:.2f} Vol:{vol_ok} Div:{div_ok}"
+            )
+            if bull_ob or bear_ob:
+                print(f"🧱 OB M15 → Bull:{bull_ob} Bear:{bear_ob}")
+            if range_low is not None and range_high is not None:
+                print(f"📦 Range M15 → Low:{range_low:.2f} High:{range_high:.2f}")
+
+            account = mt5.account_info()
+            if not account:
+                time.sleep(5); continue
+
+            stop_dist = ATR_SL_MULT * atr_m5  # ใช้สำหรับ sizing และ fallback
+            buy_lot  = calc_lot_from_risk(SYMBOL, RISK_PCT, account.balance, stop_dist)
+            sell_lot = calc_lot_from_risk(SYMBOL, RISK_PCT, account.balance, stop_dist)
+
+            now = datetime.now()
+            can_buy_cd  = (now - last_trade_time["buy"]).total_seconds()  >= COOLDOWN_SEC
+            can_sell_cd = (now - last_trade_time["sell"]).total_seconds() >= COOLDOWN_SEC
+
+            trade_done = False
+            trend_str = f"H1/M15/M5={major_trend}/{ctx_trend}/{sig_trend}"
+
+            # ---------------- TRENDING MODE ----------------
+            if trending_mode:
+                if ctx_trend == "uptrend" and sig_trend == "uptrend" and rsi_m5 < 70 and vol_ok and has_buy < MAX_OPEN_SIDE and can_buy_cd:
+                    # exits
+                    if EXIT_MODE == "ZONE":
+                        sl, tp = zone_exits_buy(ask_price, atr_m5, ctx_s, ctx_r, bull_ob, (range_low, range_high) if range_low and range_high else None)
+                    else:
+                        sl = ask_price - ATR_SL_MULT * atr_m5
+                        tp = ask_price + ATR_TP_MULT * atr_m5
+                    res = send_order(SYMBOL, buy_lot, mt5.ORDER_TYPE_BUY, sl, tp)
+                    log_trade("BUY", ask_price, trend_str, rsi_m5, ctx_s, ctx_r, {**ctx_fib, **sig_fib}, res)
+                    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                        last_trade_time["buy"] = now; trade_done = True
+
+                elif ctx_trend == "downtrend" and sig_trend == "downtrend" and rsi_m5 > 30 and vol_ok and has_sell < MAX_OPEN_SIDE and can_sell_cd:
+                    if EXIT_MODE == "ZONE":
+                        sl, tp = zone_exits_sell(bid_price, atr_m5, ctx_s, ctx_r, bear_ob, (range_low, range_high) if range_low and range_high else None)
+                    else:
+                        sl = bid_price + ATR_SL_MULT * atr_m5
+                        tp = bid_price - ATR_TP_MULT * atr_m5
+                    res = send_order(SYMBOL, sell_lot, mt5.ORDER_TYPE_SELL, sl, tp)
+                    log_trade("SELL", bid_price, trend_str, rsi_m5, ctx_s, ctx_r, {**ctx_fib, **sig_fib}, res)
+                    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                        last_trade_time["sell"] = now; trade_done = True
+
+            # ---------------- RANGE MODE ----------------
+            if not trade_done and range_mode:
+                # BUY near range low
+                if has_buy < MAX_OPEN_SIDE and can_buy_cd:
+                    cond_price = near_by_atr(ask_price, range_low, atr_m5) or (bull_ob and touch_zone(ask_price, bull_ob, atr_m5))
+                    cond_rsi   = rsi_m5 <= RANGE_RSI_BUY_MAX
+                    cond_conf  = vol_ok or div_ok
+                    if cond_price and cond_rsi and cond_conf:
+                        if EXIT_MODE == "ZONE":
+                            sl, tp = zone_exits_buy(ask_price, atr_m5, ctx_s, ctx_r, bull_ob, (range_low, range_high))
+                        else:
+                            sl = ask_price - ATR_SL_MULT * atr_m5
+                            tp = ask_price + ATR_TP_MULT * atr_m5
+                        res = send_order(SYMBOL, buy_lot, mt5.ORDER_TYPE_BUY, sl, tp)
+                        log_trade("BUY_RANGE", ask_price, trend_str, rsi_m5, range_low, range_high, {**ctx_fib, **sig_fib}, res)
+                        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                            last_trade_time["buy"] = now; trade_done = True
+
+                # SELL near range high
+                if not trade_done and has_sell < MAX_OPEN_SIDE and can_sell_cd:
+                    cond_price = near_by_atr(bid_price, range_high, atr_m5) or (bear_ob and touch_zone(bid_price, bear_ob, atr_m5))
+                    cond_rsi   = rsi_m5 >= RANGE_RSI_SELL_MIN
+                    cond_conf  = vol_ok or div_ok
+                    if cond_price and cond_rsi and cond_conf:
+                        if EXIT_MODE == "ZONE":
+                            sl, tp = zone_exits_sell(bid_price, atr_m5, ctx_s, ctx_r, bear_ob, (range_low, range_high))
+                        else:
+                            sl = bid_price + ATR_SL_MULT * atr_m5
+                            tp = bid_price - ATR_TP_MULT * atr_m5
+                        res = send_order(SYMBOL, sell_lot, mt5.ORDER_TYPE_SELL, sl, tp)
+                        log_trade("SELL_RANGE", bid_price, trend_str, rsi_m5, range_low, range_high, {**ctx_fib, **sig_fib}, res)
+                        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                            last_trade_time["sell"] = now; trade_done = True
+
+            if not trade_done:
+                print("📉 ยังไม่ครบเงื่อนไข/มีโพซิชันอยู่แล้ว/คูลดาวน์อยู่")
 
             print("⏳ รอรอบถัดไป...\n")
-            time.sleep(60 * 15)
+            time.sleep(60)
 
     except KeyboardInterrupt:
         print("\n🛑 หยุดด้วย KeyboardInterrupt")
