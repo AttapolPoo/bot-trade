@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['gold_bot_trade_short_profit.py'],
+    ['gold_scalp_app.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='gold_bot_trade_short_profit',
+    name='gold_scalp_app',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
