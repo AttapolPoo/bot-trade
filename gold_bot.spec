@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['gold_bot.py'],
+    ['gold_bot_trade_short_profit.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='gold_bot',
+    name='gold_bot_trade_short_profit',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

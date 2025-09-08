@@ -8,12 +8,12 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 """
-Scalp Bot (M1) — S/R & Order Block only
+Scalp Bot (M1) — Order Block + Confirmation
 - TF เดียว: M1
-- เข้าเมื่อราคามาใกล้แนวรับ/แนวต้าน หรือแตะ Order Block (M1)
-- TP สั้น 300 จุด และ SL 150 จุด (หน่วย points)
+- เข้าเฉพาะเมื่อราคา "แตะ OB" และมี "สัญญาณยืนยัน" (rejection candle หรือ mini BOS)
+- TP 300 จุด / SL 150 จุด (หน่วย points)
 - ตัวกรอง: สเปรด, คูลดาวน์, จำกัดจำนวนโพซิชัน, ปิดโพซิชันที่ค้างนาน
-- FIX: ลอง filling mode หลายแบบ (FOK→IOC→RETURN→ไม่ส่ง field)
+- FIX: ลอง filling mode หลายแบบ (FOK→IOC→RETURN→DEFAULT)
 - SAFE: ปัดราคา/ลอตตาม digits/volume_step, deviation ตามสเปรด
 """
 
@@ -21,35 +21,45 @@ Scalp Bot (M1) — S/R & Order Block only
 # CONFIG
 # ======================
 SYMBOL = "GOLD#"                  # *ปรับตามโบรกของคุณ*
-TF     = mt5.TIMEFRAME_M1
+TF     = mt5.TIMEFRAME_M5
 HISTORY_BARS = 1200
 
 # ขนาดออเดอร์
-LOT_FIXED = 0.02                  # lot ตายตัวสำหรับสแกัลป์
+LOT_FIXED = 0.02
 
-# เป้ากำไร/ขาดทุนสั้น ๆ (หน่วย "points")
+# เป้ากำไร/ขาดทุน (points)
 TP_MODE          = "FIXED"        # "FIXED" | "RANGE_RANDOM" | "ADAPTIVE_TO_ZONE"
-TP_POINTS_FIXED  = 300            # **ตามที่ขอ**
-SL_POINTS_FIXED  = 150            # **ตามที่ขอ**
-TP_POINTS_MIN    = 100            # ใช้เมื่อ RANGE_RANDOM / ADAPTIVE_TO_ZONE
+TP_POINTS_FIXED  = 300
+SL_POINTS_FIXED  = 150
+TP_POINTS_MIN    = 100
 TP_POINTS_MAX    = 300
 
-# ใกล้โซนแค่ไหนจึงเข้า (หน่วย "points")
-NEAR_POINTS      = 60
+# ยืนยันสัญญาณเมื่อแตะ OB
+CONFIRM_USE_REJECTION = True
+CONFIRM_USE_BOS       = True
+CONFIRM_MODE          = "ANY"     # "ANY" (อย่างใดอย่างหนึ่ง) | "BOTH" (ต้องครบทั้งคู่)
+BOS_CONFIRM_LOOKBACK  = 5         # ใช้กับ mini BOS ที่ยืนยัน entry
 
-# สเปรดสูงสุดที่ยอมรับ (หน่วย "points")
-SPREAD_MAX_POINTS = 120
+# เกณฑ์ rejection candle
+REJ_MIN_WICK_FRAC     = 0.55      # สัดส่วนไส้ยาวด้าน rejection ต่อช่วงแท่ง (0-1)
+REJ_MAX_BODY_FRAC     = 0.35      # สัดส่วนตัวแท่งต้องไม่ใหญ่เกินช่วงแท่ง
+REJ_MIN_RANGE_POINTS  = 20        # ช่วงแท่งขั้นต่ำ (points) เพื่อหลีกเลี่ยง dojiเล็กๆ
 
-# จำกัดระบบ
-COOLDOWN_SEC      = 30            # คูลดาวน์ต่อฝั่ง
-MAX_OPEN_POS      = 5             # จำกัดจำนวนโพซิชันรวม
-MAX_HOLD_SEC      = 900           # ปิดโพซิชันถ้าค้างเกินเวลานี้ (0=ปิดฟีเจอร์)
+# ใกล้โซนแค่ไหนจึงถือว่า "แตะ OB" (points) — ใช้ขยายขอบเขต OB
+OB_PAD_POINTS         = 20
+
+# สเปรดสูงสุดที่ยอมรับ (points)
+SPREAD_MAX_POINTS     = 120
+
+# ระบบทั่วไป
+COOLDOWN_SEC          = 30        # คูลดาวน์ต่อฝั่ง
+MAX_OPEN_POS          = 5         # จำกัดจำนวนโพซิชันรวม
+MAX_HOLD_SEC          = 900       # ปิดโพซิชันถ้าค้างเกินเวลานี้ (0=ปิดฟีเจอร์)
 
 # Pivot/Order Block
-SR_LOOKBACK        = 80           # บาร์หลังสุดที่ใช้หา swing S/R
-OB_LOOKBACK_BARS   = 200          # ช่วงค้นหา OB
-BOS_LOOKBACK       = 8            # เช็ค BOS ย้อนหลัง
-OB_PAD_POINTS      = 20           # ขยายโซน OB ตอนเช็คสัมผัส
+SR_LOOKBACK           = 80        # (ยังคงหาไว้เพื่อใช้ TP adaptive หากเลือก)
+OB_LOOKBACK_BARS      = 200
+BOS_LOOKBACK          = 8         # สำหรับ "การหา OB" (BOS ใหญ่เพื่อกำหนด OB)
 
 # ลำดับ filling mode ที่จะลอง
 FILLING_TRY_ORDER = [
@@ -132,11 +142,6 @@ def find_order_blocks_m1(df: pd.DataFrame,
                 bear_ob = (lo, hi)
     return bull_ob, bear_ob
 
-def is_near_level(price: float, level: Optional[float], tol_points: float, point: float) -> bool:
-    if level is None or point <= 0:
-        return False
-    return abs(price - level) <= tol_points * point
-
 def touch_zone_points(price: float, zone: Optional[Tuple[float,float]], pad_points: float, point: float) -> bool:
     if zone is None or point <= 0:
         return False
@@ -182,7 +187,7 @@ def filling_name(m):
             mt5.ORDER_FILLING_RETURN: "RETURN",
             None: "DEFAULT"}.get(m, str(m))
 
-# --- TP chooser (ยังคงโครงสร้างเดิม แต่ตั้ง FIXED=300) ---
+# --- TP chooser ---
 def choose_tp_points(info,
                      price_now: float,
                      side: str,
@@ -210,7 +215,61 @@ def choose_tp_points(info,
             tp_pts = int(clamp(min(targets) if targets else TP_POINTS_FIXED, TP_POINTS_MIN, TP_POINTS_MAX))
     return max(tp_pts, stops_level_pts + 1)
 
-# --- ส่งคำสั่ง: ลองหลาย filling mode + ใส่ SL/TP ตามจุด ---
+# ======================
+# CONFIRMATION SIGNALS
+# ======================
+def last_candle_features(df: pd.DataFrame, point: float):
+    """คำนวณ body/upper/lower/range ของแท่งล่าสุด (หน่วยราคาและ points)"""
+    o = float(df["open"].iloc[-1]); h = float(df["high"].iloc[-1])
+    l = float(df["low"].iloc[-1]);  c = float(df["close"].iloc[-1])
+    rng = h - l
+    body = abs(c - o)
+    upper = h - max(c, o)
+    lower = min(c, o) - l
+    # แปลงเป็น points ด้วย
+    rng_pts = rng / point if point > 0 else 0.0
+    body_pts = body / point if point > 0 else 0.0
+    up_pts   = upper / point if point > 0 else 0.0
+    lo_pts   = lower / point if point > 0 else 0.0
+    return dict(open=o, high=h, low=l, close=c,
+                range=rng, body=body, upper=upper, lower=lower,
+                range_pts=rng_pts, body_pts=body_pts, upper_pts=up_pts, lower_pts=lo_pts)
+
+def is_bullish_rejection(df: pd.DataFrame, point: float) -> bool:
+    f = last_candle_features(df, point)
+    if f["range_pts"] < REJ_MIN_RANGE_POINTS:
+        return False
+    # แท่งเขียว / หรือปิดสูงกว่ากลางแท่ง
+    bullish_close = f["close"] > f["open"] or f["close"] >= (f["low"] + 0.6*(f["range"]))
+    long_lower = (f["lower"] >= REJ_MIN_WICK_FRAC * f["range"]) and (f["body"] <= REJ_MAX_BODY_FRAC * f["range"])
+    return bool(bullish_close and long_lower)
+
+def is_bearish_rejection(df: pd.DataFrame, point: float) -> bool:
+    f = last_candle_features(df, point)
+    if f["range_pts"] < REJ_MIN_RANGE_POINTS:
+        return False
+    # แท่งแดง / หรือปิดต่ำกว่ากลางแท่ง
+    bearish_close = f["close"] < f["open"] or f["close"] <= (f["high"] - 0.6*(f["range"]))
+    long_upper = (f["upper"] >= REJ_MIN_WICK_FRAC * f["range"]) and (f["body"] <= REJ_MAX_BODY_FRAC * f["range"])
+    return bool(bearish_close and long_upper)
+
+def mini_bos_up(df: pd.DataFrame, lookback: int = BOS_CONFIRM_LOOKBACK) -> bool:
+    """BOS ขึ้น: close ล่าสุด > high สูงสุดของ n แท่งก่อนหน้า"""
+    if len(df) < lookback + 2:
+        return False
+    prev_high = df["high"].iloc[-(lookback+1):-1].max()
+    return float(df["close"].iloc[-1]) > float(prev_high)
+
+def mini_bos_down(df: pd.DataFrame, lookback: int = BOS_CONFIRM_LOOKBACK) -> bool:
+    """BOS ลง: close ล่าสุด < low ต่ำสุดของ n แท่งก่อนหน้า"""
+    if len(df) < lookback + 2:
+        return False
+    prev_low = df["low"].iloc[-(lookback+1):-1].min()
+    return float(df["close"].iloc[-1]) < float(prev_low)
+
+# ======================
+# ORDER SENDER (multi-filling)
+# ======================
 def _order_send_try_fillings(req_base: dict, symbol: str):
     last_res = None
     for mode in FILLING_TRY_ORDER:
@@ -227,9 +286,6 @@ def _order_send_try_fillings(req_base: dict, symbol: str):
     return last_res
 
 def send_market_order(symbol: str, lot: float, side: str, sl_points: int, tp_points: int):
-    """
-    ส่ง Market Order พร้อม SL/TP แบบ fixed points (เคารพ stops_level + ปัดราคา/ลอต)
-    """
     tick = mt5.symbol_info_tick(symbol)
     info = mt5.symbol_info(symbol)
     if not tick or not info:
@@ -244,7 +300,6 @@ def send_market_order(symbol: str, lot: float, side: str, sl_points: int, tp_poi
     price = round_price(symbol, price)
 
     min_dist = (info.trade_stops_level or 0) * point
-
     if side == "buy":
         tp_price = price + max(tp_points * point, min_dist + point)
         sl_price = price - max(sl_points * point, min_dist + point)
@@ -335,15 +390,18 @@ def main_loop():
                 time.sleep(1.0)
                 continue
 
-            # หาแนวรับ/แนวต้าน & OB (M1)
-            s, r = find_sr_levels(df, SR_LOOKBACK)
+            # หา OB (M1)
             bull_ob, bear_ob = find_order_blocks_m1(df, OB_LOOKBACK_BARS, BOS_LOOKBACK)
 
-            # เช็คใกล้โซน
-            near_s = is_near_level(ask, s, NEAR_POINTS, point)
-            near_r = is_near_level(bid, r, NEAR_POINTS, point)
+            # สถานะ touch โซน
             in_bull_ob = touch_zone_points(ask, bull_ob, OB_PAD_POINTS, point)
             in_bear_ob = touch_zone_points(bid, bear_ob, OB_PAD_POINTS, point)
+
+            # สัญญาณยืนยัน
+            rej_buy  = is_bullish_rejection(df, point) if CONFIRM_USE_REJECTION else False
+            rej_sell = is_bearish_rejection(df, point) if CONFIRM_USE_REJECTION else False
+            bos_up   = mini_bos_up(df, BOS_CONFIRM_LOOKBACK) if CONFIRM_USE_BOS else False
+            bos_dn   = mini_bos_down(df, BOS_CONFIRM_LOOKBACK) if CONFIRM_USE_BOS else False
 
             # จำกัดจำนวนโพซิชัน + คูลดาวน์
             poses = mt5.positions_get(symbol=SYMBOL) or []
@@ -357,20 +415,33 @@ def main_loop():
 
             # ตัดสินใจ TP/SL (points)
             def pick_tp_points(side: str) -> int:
+                # เก็บ SR ไว้เผื่อใช้ ADAPTIVE (ไม่บังคับ)
+                s, r = find_sr_levels(df, SR_LOOKBACK)
                 return choose_tp_points(info, ask if side=="buy" else bid, side, s, r, bull_ob, bear_ob)
             def pick_sl_points() -> int:
                 return SL_POINTS_FIXED
 
-            # ===== เข้าซื้อ: ใกล้แนวรับ หรือ แตะ Bullish OB =====
-            if have_room and can_buy and (near_s or in_bull_ob):
+            # เงื่อนไขยืนยันรวม
+            def confirmed_for_buy():
+                c_rej = rej_buy
+                c_bos = bos_up
+                return ((c_rej or c_bos) if CONFIRM_MODE == "ANY" else (c_rej and c_bos))
+
+            def confirmed_for_sell():
+                c_rej = rej_sell
+                c_bos = bos_dn
+                return ((c_rej or c_bos) if CONFIRM_MODE == "ANY" else (c_rej and c_bos))
+
+            # ===== เข้า BUY: ต้อง "แตะ Bullish OB" + "ยืนยัน" =====
+            if have_room and can_buy and in_bull_ob and confirmed_for_buy():
                 tp_pts = pick_tp_points("buy")
                 sl_pts = pick_sl_points()
                 res = send_market_order(SYMBOL, LOT_FIXED, "buy", sl_pts, tp_pts)
                 if res and res.retcode == mt5.TRADE_RETCODE_DONE:
                     last_trade_time["buy"] = now
 
-            # ===== เข้าขาย: ใกล้แนวต้าน หรือ แตะ Bearish OB =====
-            if have_room and can_sell and (near_r or in_bear_ob):
+            # ===== เข้า SELL: ต้อง "แตะ Bearish OB" + "ยืนยัน" =====
+            if have_room and can_sell and in_bear_ob and confirmed_for_sell():
                 tp_pts = pick_tp_points("sell")
                 sl_pts = pick_sl_points()
                 res = send_market_order(SYMBOL, LOT_FIXED, "sell", sl_pts, tp_pts)
@@ -378,9 +449,11 @@ def main_loop():
                     last_trade_time["sell"] = now
 
             # แสดงสถานะสั้น ๆ
-            print(f"[{now.strftime('%H:%M:%S')}] Bid:{bid:.2f} Ask:{ask:.2f} "
-                  f"S:{'%.2f'%s if s else 'None'} R:{'%.2f'%r if r else 'None'}  "
-                  f"nearS:{near_s} nearR:{near_r}  bullOB:{bull_ob} bearOB:{bear_ob}  open:{len(poses)}")
+            print(
+                f"[{now.strftime('%H:%M:%S')}] Bid:{bid:.2f} Ask:{ask:.2f}  "
+                f"bullOB:{bull_ob} bearOB:{bear_ob}  touchOB(B/S):{in_bull_ob}/{in_bear_ob}  "
+                f"rej(B/S):{rej_buy}/{rej_sell}  miniBOS(up/dn):{bos_up}/{bos_dn}  open:{len(poses)}"
+            )
 
             time.sleep(1.0)
 
