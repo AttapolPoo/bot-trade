@@ -189,3 +189,103 @@ KeyError: 'atr'
 2025-12-25 17:35:18,224 [INFO] Gold MT5 bot started for GOLD#
 2025-12-25 17:35:18,224 [WARNING] Server mismatch; relogin...
 2025-12-25 17:35:18,259 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:58:20,998 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:58:20,999 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:58:21,000 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:58:21,001 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:58:21,001 [WARNING] Server mismatch; relogin...
+2025-12-25 17:58:21,001 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    now = datetime.now(timezone.utc)
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 17:58:51,005 [WARNING] Server mismatch; relogin...
+2025-12-25 17:58:51,006 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    now = datetime.now(timezone.utc)
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 17:59:21,007 [WARNING] Server mismatch; relogin...
+2025-12-25 17:59:21,007 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    now = datetime.now(timezone.utc)
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 17:59:51,008 [WARNING] Server mismatch; relogin...
+2025-12-25 17:59:51,009 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:00:21,012 [WARNING] Server mismatch; relogin...
+2025-12-25 18:00:21,013 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:00:51,015 [WARNING] Server mismatch; relogin...
+2025-12-25 18:00:51,015 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:01:21,017 [WARNING] Server mismatch; relogin...
+2025-12-25 18:01:21,018 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:01:51,019 [WARNING] Server mismatch; relogin...
+2025-12-25 18:01:51,019 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:02:21,021 [WARNING] Server mismatch; relogin...
+2025-12-25 18:02:21,021 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:02:51,023 [WARNING] Server mismatch; relogin...
+2025-12-25 18:02:51,024 [ERROR] Loop error: name 'datetime' is not defined
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 73, in run
+    mt5_client.ensure_connected()
+          ^^^^^^^^
+NameError: name 'datetime' is not defined. Did you forget to import 'datetime'?
+2025-12-25 18:03:22,984 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 18:03:22,985 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 18:03:22,986 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 18:03:23,076 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 18:03:23,077 [WARNING] Server mismatch; relogin...
+2025-12-25 18:03:23,197 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:03:38,077 [WARNING] Server mismatch; relogin...
+2025-12-25 18:03:38,107 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:03:53,078 [WARNING] Server mismatch; relogin...
+2025-12-25 18:03:53,131 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:04:08,078 [WARNING] Server mismatch; relogin...
+2025-12-25 18:04:08,126 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:04:23,078 [WARNING] Server mismatch; relogin...
+2025-12-25 18:04:23,134 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:04:38,079 [WARNING] Server mismatch; relogin...
+2025-12-25 18:04:38,161 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:04:53,079 [WARNING] Server mismatch; relogin...
+2025-12-25 18:04:53,133 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:05:08,079 [WARNING] Server mismatch; relogin...
+2025-12-25 18:05:08,141 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:05:23,080 [WARNING] Server mismatch; relogin...
+2025-12-25 18:05:23,137 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:05:38,080 [WARNING] Server mismatch; relogin...
+2025-12-25 18:05:38,126 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 18:05:53,081 [INFO] Stop requested; exiting loop
+2025-12-25 18:05:53,082 [INFO] MT5 shutdown complete

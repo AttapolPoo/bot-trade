@@ -1,9 +1,9 @@
 ﻿from __future__ import annotations
 
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event
 
 from dotenv import load_dotenv
 
@@ -18,7 +18,7 @@ from gold_mt5_bot.bot.utils import AppConfig, Signal, load_config, within_blacko
 from gold_mt5_bot.bot.indicators import add_atr
 
 
-def run(config_path: str = "config.yaml", stop_event: Event | None = None) -> None:
+def run(config_path: str = "config.yaml", stop_event: threading.Event | None = None) -> None:
     load_dotenv()
     load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
     cfg_path = Path(config_path)
