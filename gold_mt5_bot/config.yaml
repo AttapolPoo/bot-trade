@@ -1,0 +1,72 @@
+﻿mt5:
+  login_env: MT5_LOGIN
+  password_env: MT5_PASSWORD
+  server_env: MT5_SERVER
+  path_env: MT5_PATH
+  symbol: GOLD#
+  timeframes:
+    trend: H1
+    signal: M15
+    trigger: M5
+  timezone: Asia/Bangkok
+
+data:
+  lookback: 400
+  refresh_seconds: 5
+
+strategy:
+  ema_fast: 21
+  ema_slow: 50
+  ema_trend_fast: 50
+  ema_trend_slow: 200
+  rsi_period: 14
+  rsi_buy: 45
+  rsi_sell: 55
+  atr_period: 14
+  atr_silence_threshold: 0.3
+  spread_limit_points: 350
+  max_candle_spread_ratio: 3.0
+  news_blackout:
+    enabled: false
+    windows: []
+  max_signal_per_bar: 1
+  cooldown_minutes: 10
+
+risk:
+  risk_per_trade: 0.005
+  max_open_positions: 1
+  max_daily_loss_pct: 0.03
+  max_consecutive_losses: 3
+  min_rr: 1.5
+  atr_sl_mult: 1.8
+  atr_tp_mult: 2.4
+  trailing:
+    enabled: true
+    atr_mult: 1.0
+    step: 0.5
+  breakeven_rr: 1.0
+  kill_switch:
+    enabled: true
+    equity_drop_pct: 0.05
+
+execution:
+  magic: 424242
+  deviation: 30
+  slippage_guard_points: 120
+  volume_min: 0.01
+  volume_step: 0.01
+  comment: gold-bot
+  retries: 2
+  retry_sleep: 1.0
+  dry_run: true
+  journal_csv: trade_log.csv
+
+logging:
+  level: INFO
+  file: logs/bot.log
+  max_bytes: 1048576
+  backup_count: 5
+
+loop:
+  poll_seconds: 15
+  backoff_seconds: 30

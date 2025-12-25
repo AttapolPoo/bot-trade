@@ -1,0 +1,191 @@
+2025-12-25 16:56:13,041 [INFO] MT5_PATH not set; using detected terminal: C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 16:56:13,056 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 16:58:55,701 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:09:44,963 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:09:44,971 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:09:44,973 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:09:45,175 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:09:45,176 [WARNING] Server mismatch; relogin...
+2025-12-25 17:09:46,069 [ERROR] Loop error: 'atr'
+Traceback (most recent call last):
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'atr'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 92, in run
+    atr_value = data[config.mt5.timeframes.trigger]["atr"].iloc[-2]
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'atr'
+2025-12-25 17:10:16,179 [WARNING] Server mismatch; relogin...
+2025-12-25 17:10:16,186 [ERROR] Loop error: 'atr'
+Traceback (most recent call last):
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'atr'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 92, in run
+    atr_value = data[config.mt5.timeframes.trigger]["atr"].iloc[-2]
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'atr'
+2025-12-25 17:10:46,188 [WARNING] Server mismatch; relogin...
+2025-12-25 17:10:46,192 [ERROR] Loop error: 'atr'
+Traceback (most recent call last):
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'atr'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 92, in run
+    atr_value = data[config.mt5.timeframes.trigger]["atr"].iloc[-2]
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'atr'
+2025-12-25 17:11:16,194 [WARNING] Server mismatch; relogin...
+2025-12-25 17:11:16,202 [ERROR] Loop error: 'atr'
+Traceback (most recent call last):
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'atr'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 92, in run
+    atr_value = data[config.mt5.timeframes.trigger]["atr"].iloc[-2]
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'atr'
+2025-12-25 17:11:46,204 [WARNING] Server mismatch; relogin...
+2025-12-25 17:11:46,210 [ERROR] Loop error: 'atr'
+Traceback (most recent call last):
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'atr'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 92, in run
+    continue
+    
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'atr'
+2025-12-25 17:12:16,214 [WARNING] Server mismatch; relogin...
+2025-12-25 17:12:16,220 [ERROR] Loop error: 'atr'
+Traceback (most recent call last):
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'atr'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Developer\CDP\Program\Backend\Bot Trade\gold_mt5_bot\main.py", line 92, in run
+    continue
+    
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\frame.py", line 4107, in __getitem__
+    indexer = self.columns.get_loc(key)
+  File "C:\Users\AttapolPoolphol\AppData\Local\Programs\Python\Python313\Lib\site-packages\pandas\core\indexes\base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'atr'
+2025-12-25 17:12:24,535 [INFO] Keyboard interrupt received; shutting down...
+2025-12-25 17:12:24,536 [INFO] MT5 shutdown complete
+2025-12-25 17:12:28,033 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:12:28,034 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:12:28,034 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:12:28,035 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:12:28,036 [WARNING] Server mismatch; relogin...
+2025-12-25 17:12:28,089 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:12:32,948 [INFO] Keyboard interrupt received; shutting down...
+2025-12-25 17:12:32,949 [INFO] MT5 shutdown complete
+2025-12-25 17:24:04,309 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:24:04,310 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:24:04,311 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:24:04,313 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:24:04,313 [WARNING] Server mismatch; relogin...
+2025-12-25 17:24:04,395 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:24:09,184 [INFO] Keyboard interrupt received; shutting down...
+2025-12-25 17:24:09,185 [INFO] MT5 shutdown complete
+2025-12-25 17:26:06,468 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:26:06,468 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:26:06,469 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:26:06,470 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:26:06,471 [WARNING] Server mismatch; relogin...
+2025-12-25 17:26:06,510 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:26:21,471 [WARNING] Server mismatch; relogin...
+2025-12-25 17:26:21,538 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:26:36,471 [WARNING] Server mismatch; relogin...
+2025-12-25 17:26:36,502 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:26:37,891 [INFO] Keyboard interrupt received; shutting down...
+2025-12-25 17:26:37,891 [INFO] MT5 shutdown complete
+2025-12-25 17:33:02,184 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:33:02,186 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:33:02,189 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:33:02,193 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:33:02,194 [WARNING] Server mismatch; relogin...
+2025-12-25 17:33:02,380 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:33:17,195 [WARNING] Server mismatch; relogin...
+2025-12-25 17:33:17,258 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:33:32,195 [WARNING] Server mismatch; relogin...
+2025-12-25 17:33:32,221 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
+2025-12-25 17:35:18,222 [INFO] MT5 initialized with terminal C:\Program Files\MetaTrader 5\terminal64.exe
+2025-12-25 17:35:18,222 [INFO] Using existing MT5 session: account=334334533 server=XMGlobal-MT5 9
+2025-12-25 17:35:18,223 [INFO] Resolved symbol GOLD# -> GOLD#
+2025-12-25 17:35:18,224 [INFO] Gold MT5 bot started for GOLD#
+2025-12-25 17:35:18,224 [WARNING] Server mismatch; relogin...
+2025-12-25 17:35:18,259 [INFO] Signal: NONE | reason={'reason': 'no_trigger', 'bias': 'BUY'}
